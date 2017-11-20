@@ -33,13 +33,18 @@ void store(Cache *cache, int set_index, int tag, int isVerbose);
 void load(Cache *cache, int set_index, int tag, int isVerbose);
 void modify(Cache *cache, int set_index, int tag, int isVerbose);
 
+/* 
+    hit_count -> 命中次数
+    miss_count -> 丢失次数
+    eviction_count ->替代次数
+*/
 int hit_count;
 int miss_count;
 int eviction_count;
 
 int main(int argc, char *argv[]) {
     int s, E, b;
-    char file[100];
+    char file[100];                                             /* 存储打开的文件名 */
     int isVerbose = 0;
     Cache cache;
     hit_count = miss_count = eviction_count = 0;
@@ -71,16 +76,14 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    init_cache(s, E, b, &cache);
-    // printf("cache initialize done\n");
+    init_cache(s, E, b, &cache);                                
 
-    cacheSimulator(s, E, b, file, isVerbose, &cache);
+    cacheSimulator(s, E, b, file, isVerbose, &cache);       
 
     printSummary(hit_count, miss_count, eviction_count);
 
     return 0;
 }
-
 
 void init_cache(int s, int E, int b, Cache* cache) {
     cache->S = 2 << s;
@@ -99,7 +102,12 @@ void init_cache(int s, int E, int b, Cache* cache) {
     return;
 }
 
-/* find empty line sequentially */
+/*  find empty line sequentially，
+    在给定的组内顺序查找空闲的缓存行
+    cache -- 缓存的指针
+    set_index -- 给定的组索引
+    tag       -- 给定的标识号
+ */
 int get_emptyIndex(Cache *cache, int set_index, int tag) {
     int i;
     int emptyIndex = -1;
@@ -110,18 +118,12 @@ int get_emptyIndex(Cache *cache, int set_index, int tag) {
         }
     }
 
-    // if (emptyIndex != -1) {
-    //     cache->sets[set_index].lines[emptyIndex].valid_bit = 1;
-    //     cache->sets[set_index].lines[emptyIndex].tag = tag;
-    // }
-
     return emptyIndex;
 }
 
 
 /**
-    hit or miss
-    return i if hit the ith line, -1 otherwise
+    是否命中，如果命中返回行号，否则返回-1
  */
 int get_hitIndex(Cache *cache, int set_index, int tag) {
     int i;
@@ -138,8 +140,12 @@ int get_hitIndex(Cache *cache, int set_index, int tag) {
     return hitIndex;
 }
 
+/*
+    从缓存加载数据
+    isVerbose -- 是否显示加载详情
+ */
 void load(Cache *cache, int set_index, int tag, int isVerbose) {
-    // hit or miss
+    // 是否命中
     int hitIndex = get_hitIndex(cache, set_index, tag);
     if (hitIndex == -1) {               /* miss the cache */
         miss_count++;
@@ -148,7 +154,7 @@ void load(Cache *cache, int set_index, int tag, int isVerbose) {
         }
         /* eviction or insert sequentially */
         int emptyIndex = get_emptyIndex(cache, set_index, tag);     
-        if (emptyIndex == -1) {         /* full, eviction */
+        if (emptyIndex == -1) {         /* full, eviction 已满*/
             eviction_count++;
             if (isVerbose) {
                 printf("eviction ");
@@ -166,7 +172,7 @@ void load(Cache *cache, int set_index, int tag, int isVerbose) {
                     cache->sets[set_index].lines[i].LRU_count++;
                 }
             }
-        } else {                        /* exists empty line, insert */
+        } else {                        /* exists empty line, insert  未满，顺序插入 */
             int i;
             for (i = 0; i < cache->E; i++) {
                 if (i != emptyIndex) {
@@ -178,7 +184,7 @@ void load(Cache *cache, int set_index, int tag, int isVerbose) {
                 }
             }
         }
-    } else {                            /* hit the cache */
+    } else {                            /* hit the cache 命中*/
         hit_count++;
         if (isVerbose) {
             printf("hit ");
@@ -221,14 +227,11 @@ void cacheSimulator(int s, int E, int b, char* file, int isVerbose, Cache* pCach
         if (access_type == 'I') {
             continue;
         } else {
+            // 计算标识tag和组号set索引
             int tag = address >> tag_move_bits;
             int set_index = (address >> b) & ((1 << s) - 1);
-            /*
-            printf("------------------------\n");
-            printf("tag = %d\t\t", tag);
-            printf("set_index = %d\n", set_index);
-            */
 
+            // 是否显示详细的hit，miss，evict情况
             if (isVerbose == 1) {
                 printf("%c %lx,%d ", access_type, address, size);
             }

@@ -25,7 +25,10 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
     int i, j, ii, jj, tmp, tmp1, tmp2, tmp3;
     int bsize = 8;
 
-    if (M == 32) {                              /* block multiply, fit memory to solve conflict miss */
+    // s=5 -> S=32 sets b=5 -> B=32B=8 int
+    // 32*32按照8*8分组块，一行4块，正好可以填满cache
+    // 这样既充分利用了cache行的8个字节的block也充分利用了工作集
+    if (M == 32) {                                  /* block multiply, fit memory to solve conflict miss */
         for (ii = 0; ii < N; ii += bsize) {
             for (jj = 0; jj < M; jj += bsize) {
                 for (i = ii; i < ii + bsize; i++) {
@@ -36,17 +39,18 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
                             tmp = A[i][j];
                         }
                     }
-                    if (ii == jj) {             /* decrease eviction along the diagonal */
+                    if (ii == jj) {                 /* decrease eviction along the diagonal */
                         B[i][i] = tmp;
                     }
                 } 
             }
         }
-    } else if (M == 64) {                       /* choose proper bsize */
+    } else if (M == 64) {                           /* choose proper bsize */
         for (ii = 0; ii < N; ii += bsize) {
             for (jj = 0; jj < M; jj += bsize) {
+                // 左上角
                 j = jj;
-                for (i = ii; i < ii + 4; i++) {
+                for (i = ii; i < ii + 4; i++) {     /* 这里引入4个局部变量来存储4*4小块的值 */
                     tmp = A[i][j];
                     tmp1 = A[i][j + 1];
                     tmp2 = A[i][j + 2];
@@ -56,6 +60,7 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
                     B[j + 2][i] = tmp2;
                     B[j + 3][i] = tmp3;
                 }
+                // 右上角
                 j = jj + 4;
                 for (i = ii; i < ii + 4; i++) {
                     tmp = A[i][j];
@@ -67,6 +72,7 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
                     B[j + 2][i] = tmp2;
                     B[j + 3][i] = tmp3;
                 }
+                // 右下角
                 for (i = ii + 4; i < ii + 8; i++) {
                     tmp = A[i][j];
                     tmp1 = A[i][j + 1];
@@ -77,6 +83,7 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
                     B[j + 2][i] = tmp2;
                     B[j + 3][i] = tmp3;
                 }
+                // 左下角放在最后也是为了减少冲突miss
                 j = jj;
                 for (i = ii + 4; i < ii + 8; i++) {
                     tmp = A[i][j];
@@ -90,7 +97,7 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
                 }
             }
         }
-    } else {
+    } else {                                        /* 这里选择合适的块大小，满足miss的要求即可 */
         bsize = 16;
         for (ii = 0; ii < N; ii += bsize) {
             for (jj = 0; jj < M; jj += bsize) {
