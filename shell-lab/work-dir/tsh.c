@@ -42,6 +42,10 @@ int verbose = 0;            /* if true, print additional output */
 int nextjid = 1;            /* next job ID to allocate */
 char sbuf[MAXLINE];         /* for composing sprintf messages */
 
+
+//volatile sig_atomic_t waiting = 0;        /* 是否正在等待的前台完成 */
+//volatile sig_atomic_t waitingPid = -1;    /* 正在等待的前台的pid，仅当waiting为1时有效 */
+
 struct job_t {              /* The job struct */
     pid_t pid;              /* job PID */
     int jid;                /* job ID [1, 2, ...] */
@@ -84,6 +88,17 @@ void unix_error(char *msg);
 void app_error(char *msg);
 typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
+
+/* Here are error-handling wrapper functions */
+void Sigemptyset(sigset_t *mask);
+void Sigaddset(sigset_t *mask,int sign);
+void Sigprocmask(int how,sigset_t *mask,sigset_t *oldmask);
+
+void Setpgid(pid_t pid,pid_t gpid);
+
+pid_t Fork(void);
+void Execve(const char *filename, char *const argv[], char *const envp[]);
+void Kill(pid_t pid,int sig);
 
 /*
  * main - The shell's main routine 
@@ -182,30 +197,26 @@ void eval(char *cmdline)
     }
 
     if (!builtin_cmd(argv)) {
-        sigemptyset(&mask);
-        sigaddset(&mask, SIGCHLD);
-        sigprocmask(SIG_BLOCK, &mask, NULL);
+        Sigemptyset(&mask);
+        Sigaddset(&mask, SIGCHLD);
+        Sigprocmask(SIG_BLOCK, &mask, NULL);
 
-        if ((pid = fork()) == 0) {
-            sigprocmask(SIG_UNBLOCK, &mask, NULL);
+        if ((pid = Fork()) == 0) {
+            Sigprocmask(SIG_UNBLOCK, &mask, NULL);
             Setpgid(0, 0);
-            if (execve(argv[0], argv, environ) < 0) {
-                printf("%s: Command not found.\n", argv[0]);
-            }
-        } else {
-            // 是否是后台任务
-            addjob(jobs, pid, ((bg == 1) ? BG : FG), cmdline);
+            Execve(argv[0], argv, environ)
+        } 
+        
+        addjob(jobs, pid, ((bg == 1) ? BG : FG), cmdline);
 
-            if (!bg) {
-                waitfg(pid);
-            }
-            else {
-                printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
-            }
-            sigprocmask(SIG_UNBLOCK, &mask, NULL);
+        if (!bg) {
+            waitfg(pid);
         }
+        else {
+            printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+        }
+        sigprocmask(SIG_UNBLOCK, &mask, NULL);   
     }
-
     return;
 }
 
@@ -600,9 +611,54 @@ void sigquit_handler(int sig)
     exit(1);
 }
 
+void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+    if (sigprocmask(how, set, oldset) < 0)
+    unix_error("Sigprocmask error");
+    return;
+}
 
-void Setpgid(pid_t pid, pid_t pgid) {
+void Sigemptyset(sigset_t *set)
+{
+    if (sigemptyset(set) < 0)
+    unix_error("Sigemptyset error");
+    return;
+}
+
+void Sigaddset(sigset_t *set, int signum)
+{
+    if (sigaddset(set, signum) < 0)
+    unix_error("Sigaddset error");
+    return;
+}
+void Setpgid(pid_t pid, pid_t pgid) 
+{
     if (setpgid(pid, pgid) < 0) {
         unix_error("eval: setpgid failed.\n");
     }
+}
+
+pid_t Fork(void) 
+{
+    pid_t pid;
+
+    if ((pid = fork()) < 0)
+    unix_error("Fork error");
+    return pid;
+}
+
+void Execve(const char *filename, char *const argv[], char *const envp[]) 
+{
+    if (execve(filename, argv, envp) < 0) {
+        printf("%s: Command not found\n", argv[0]);
+        exit(0);
+    }
+}
+
+void Kill(pid_t pid, int signum) 
+{
+    int rc;
+
+    if ((rc = kill(pid, signum)) < 0)
+    unix_error("Kill error");
 }
