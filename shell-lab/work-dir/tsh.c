@@ -65,6 +65,7 @@ void sigtstp_handler(int sig);
 void sigint_handler(int sig);
 
 /* Here are helper routines that we've provided for you */
+int paseArgument(int *isJob, const char *pj_char);
 int parseline(const char *cmdline, char **argv); 
 void sigquit_handler(int sig);
 
@@ -121,9 +122,9 @@ int main(int argc, char **argv)
         case 'p':             /* don't print a prompt */
             emit_prompt = 0;  /* handy for automatic testing */
         break;
-    default:
-            usage();
-    }
+        default:
+                usage();
+        }
     }
 
     /* Install the signal handlers */
@@ -142,22 +143,22 @@ int main(int argc, char **argv)
     /* Execute the shell's read/eval loop */
     while (1) {
 
-    /* Read command line */
-    if (emit_prompt) {
-        printf("%s", prompt);
-        fflush(stdout);
-    }
-    if ((fgets(cmdline, MAXLINE, stdin) == NULL) && ferror(stdin))
-        app_error("fgets error");
-    if (feof(stdin)) { /* End of file (ctrl-d) */
-        fflush(stdout);
-        exit(0);
-    }
+        /* Read command line */
+        if (emit_prompt) {
+            printf("%s", prompt);
+            fflush(stdout);
+        }
+        if ((fgets(cmdline, MAXLINE, stdin) == NULL) && ferror(stdin))
+            app_error("fgets error");
+        if (feof(stdin)) { /* End of file (ctrl-d) */
+            fflush(stdout);
+            exit(0);
+        }
 
-    /* Evaluate the command line */
-    eval(cmdline);
-    fflush(stdout);
-    fflush(stdout);
+        /* Evaluate the command line */
+        eval(cmdline);
+        fflush(stdout);
+        fflush(stdout);
     } 
 
     exit(0); /* control never reaches here */
@@ -204,9 +205,16 @@ void eval(char *cmdline)
             }
         } 
         
+        // 必须在父进程添加job以后才能取消屏蔽信号
         addjob(jobs, pid, bg ? BG : FG, cmdline);
         Sigprocmask(SIG_UNBLOCK, &mask, NULL);
-        bg ? printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline) : waitfg(pid);
+
+        // 根据是否是后台job决定是否等待子进程完成
+        if (!bg) {
+            waitfg(pid);
+        } else {
+           printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+        }
     }
     return;
 }
@@ -292,10 +300,72 @@ int builtin_cmd(char **argv)
 
 /* 
  * do_bgfg - Execute the builtin bg and fg commands
+
+ * Jobs states: FG (foreground), BG (background), ST (stopped)
+ * Job state transitions and enabling actions:
+ *     FG -> ST  : ctrl-z
+ *     ST -> FG  : fg command
+ *     ST -> BG  : bg command
+ *     BG -> FG  : fg command
+
+ * At most 1 job can be in the FG state.
+ * The bg(fg)<job> command restarts <job> by sending it a SIGCONT signal, 
+ * and then runs it in the background(background). The <job> argument 
+ * can be either a PID or a JID.
+ * 
+ * Each job can be identified by either a process ID (PID) or a job ID 
+ * (JID), which is a positive integer assigned by tsh. JIDs should be 
+ * denoted on the command line by the prefix ’%’. 
+ *
+ * For example, “%5” denotes JID 5, and “5” denotes PID 5.
  */
 void do_bgfg(char **argv) 
 {
+    char* pj_char = argv[1];
+    int JIDorPID, number;
+    
+    int bg = !strcmp(argv[0], "bg");
+    if (argv[1] == NULL) {
+        printf("%s command requires PID or %%jobid argument\n", bg?"bg":"fg");
+    }
+
+    number = paseArgument(&JIDorPID, pj_char);
+    if (number < 0) { return; }
+    
+    if (bg) {
+        if (JIDorPID == 1) {
+            struct job_t *job = getjobjid(jobs, number);
+            if (job->state == ST) {
+                job->state = BG;
+                Kill(-(job->pid), SIGCONT);
+            }
+        } else {
+            struct job_t *job = getjobpid(jobs, number);
+            if (job->state == ST || job->state == BG) {
+                job->state = FG;
+                Kill(-number, SIGCONT);
+            }
+        }
+    }
+    
     return;
+}
+
+int paseArgument(int *JIDorPID, const char *pj_char)
+{
+    int number;
+
+    if (pj_char[0] == '%') {
+        number = atoi(pj_char + 1);
+        if (number == 0) return -1;
+        *JIDorPID = 1;
+    } else {
+        number = atoi(pj_char);
+        if (number == 0) return -1;
+        *JIDorPID = 2;
+    }
+
+    return number;
 }
 
 /* 
@@ -371,11 +441,13 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-    pid_t pid = fgpid(jobs);    /* 获取当前的前台job pid*/
+    pid_t pid = fgpid(jobs); 
 
     if (pid != 0) {
         struct job_t *job = getjobpid(jobs, pid);
-        if (job->state == ST) return;
+        if (job->state == ST) {         /* 已经处于stop的job不需要发送信号了 */
+            return;
+        }
         else {
             Kill(-pid, SIGTSTP);
         }
