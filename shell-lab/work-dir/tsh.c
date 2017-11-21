@@ -188,21 +188,13 @@ void eval(char *cmdline)
 
         if ((pid = fork()) == 0) {
             sigprocmask(SIG_UNBLOCK, &mask, NULL);
-            if (setpgid(0, 0) < 0) {
-                unix_error("eval: setpgid failed");
-            }
+            Setpgid(0, 0);
             if (execve(argv[0], argv, environ) < 0) {
                 printf("%s: Command not found.\n", argv[0]);
             }
         } else {
             // 是否是后台任务
-            if (bg) {
-                addjob(jobs, pid, BG, cmdline);
-            }
-            else {
-                addjob(jobs, pid, FG, cmdline);
-            }
-            sigprocmask(SIG_UNBLOCK, &mask, NULL);
+            addjob(jobs, pid, ((bg == 1) ? BG : FG), cmdline);
 
             if (!bg) {
                 waitfg(pid);
@@ -210,6 +202,7 @@ void eval(char *cmdline)
             else {
                 printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
             }
+            sigprocmask(SIG_UNBLOCK, &mask, NULL);
         }
     }
 
@@ -608,4 +601,8 @@ void sigquit_handler(int sig)
 }
 
 
-
+void Setpgid(pid_t pid, pid_t pgid) {
+    if (setpgid(pid, pgid) < 0) {
+        unix_error("eval: setpgid failed.\n");
+    }
+}
