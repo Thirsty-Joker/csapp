@@ -173,7 +173,7 @@ void eval(char *cmdline)
     char buf[MAXLINE];      /* Holds modified command line */
     int bg;                 /* Should the job run in bg or fg */
     pid_t pid;              /* process id */
-    sigset_t mask, prev_one;
+    sigset_t mask;
 
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
@@ -184,9 +184,9 @@ void eval(char *cmdline)
     if (!builtin_cmd(argv)) {
         sigemptyset(&mask);
         sigaddset(&mask, SIGCHLD);
-        sigprocmask(SIG_BLOCK, &mask, &NULL);
+        sigprocmask(SIG_BLOCK, &mask, NULL);
 
-        if ((pid == fork()) == 0) {
+        if ((pid = fork()) == 0) {
             sigprocmask(SIG_UNBLOCK, &mask, NULL);
             if (setpgid(0, 0) < 0) {
                 unix_error("eval: setpgid failed");
@@ -285,7 +285,7 @@ int builtin_cmd(char **argv)
     else if (!strcmp(argv[0], "&"))  {             /* ignore singleton & */
         return 1;
     }
-    else if (!strcmp(argv[0], jobs)) {
+    else if (!strcmp(argv[0], "jobs")) {
         listjobs(jobs);
         return 1;
     }
@@ -332,7 +332,7 @@ void sigchld_handler(int sig)
     pid_t pid;
 
     // 返回值等于那个被stop或terminate的子进程的PID
-    while ((pid = waitpid(-1, status, WNOHANG|WUNTRACED)) > 0) {
+    while ((pid = waitpid(-1, &status, (WNOHANG|WUNTRACED))) > 0) {
         // 子进程正常终止返回非零值
         if (WIFEXITED(status)) {
             deletejob(jobs, pid);
@@ -346,7 +346,7 @@ void sigchld_handler(int sig)
             sigtstp_handler(-pid);
         }
     }
-    if (error != ECHILD)
+    if (errno != ECHILD)
         unix_error("waitpid error");
 }
 
