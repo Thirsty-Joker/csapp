@@ -326,31 +326,70 @@ void do_bgfg(char **argv)
     
     int bg = !strcmp(argv[0], "bg");
     if (argv[1] == NULL) {
-        printf("%s command requires PID or %%jobid argument\n", bg?"bg":"fg");
+        printf("%s command requires PID or %%jobid argument\n", (bg?"bg":"fg"));
+        return;
     }
 
     number = paseArgument(&JIDorPID, pj_char);
-    if (number < 0) { return; }
-    
-    if (bg) {
-        if (JIDorPID == 1) {
-            struct job_t *job = getjobjid(jobs, number);
-            if (job->state == ST) {
-                job->state = BG;
-                Kill(-(job->pid), SIGCONT);
-            }
-        } else {
-            struct job_t *job = getjobpid(jobs, number);
-            if (job->state == ST || job->state == BG) {
-                job->state = FG;
-                Kill(-number, SIGCONT);
-            }
-        }
+    if (number < 0) {
+        printf("%s: argument must be a PID or %%jobid\n", (bg?"bg":"fg"));
+        return;
     }
+    
+    if (JIDorPID == 1) {
+        if (number > maxjid(jobs)) {
+            printf("%%%d: No such job\n", number);
+            return;
+        }
+
+        struct job_t *job = getjobjid(jobs, number);
+        if ((job == NULL) || job->state == UNDEF) {
+            printf("%%%d: No such job\n", number);
+            return;
+        } 
+        else if (bg && (job->state == ST)) {
+            job->state = BG;
+            Kill(-(job->pid), SIGCONT);
+            printf("[%d] (%d) %s", number, job->pid, job->cmdline);
+        }
+        else if (!bg && (job->state == ST || job->state == BG)) {
+            job->state = FG;
+            Kill(-number, SIGCONT);
+            waitfg(job->pid);
+        }
+
+    } 
+    else if (JIDorPID == 2) {
+        struct job_t *job = getjobpid(jobs, number);
+
+        if ((job == NULL) || job->state == UNDEF) {
+            printf("(%d): No such process\n", number);
+            return;
+        }
+        else if (bg && (job->state == ST)) {
+            job->state = BG;
+            Kill(-number, SIGCONT);
+            printf("[%d] (%d) %s", job->jid, number, job->cmdline);
+        }
+        else if (!bg && (job->state == ST || job->state == BG)) {
+            job->state = FG;
+            Kill(-number, SIGCONT);
+            waitfg(job->pid);
+        }
+    }  
     
     return;
 }
 
+/*
+ * parse arguments to fg/bg
+ * argument: JIDorPID
+ *      %JID -> JIDorPID = 1
+ *      %PID -> JIDorPID = 2
+ * return: number
+ *      0 -> not a valid number input
+ *      positive number -> valid
+ */
 int paseArgument(int *JIDorPID, const char *pj_char)
 {
     int number;
@@ -361,6 +400,7 @@ int paseArgument(int *JIDorPID, const char *pj_char)
         *JIDorPID = 1;
     } else {
         number = atoi(pj_char);
+        // printf("pid number = %d\n", number);
         if (number == 0) return -1;
         *JIDorPID = 2;
     }
@@ -694,6 +734,7 @@ void Sigaddset(sigset_t *set, int signum)
     unix_error("Sigaddset error");
     return;
 }
+
 void Setpgid(pid_t pid, pid_t pgid) 
 {
     if (setpgid(pid, pgid) < 0) {
