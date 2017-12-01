@@ -93,7 +93,9 @@ static char *free_block_list_start = NULL;
 static void *extend_heap(size_t dwords);
 static void *coalesce(void *bp);
 static void *find_fit(size_t size);
-static void place(void *bp,size_t asize);
+static void place(void *bp, size_t asize);
+static void reallocPlace(void *bp, size_t asize);
+
 static char *find_list_root(size_t size);
 static void deleteFromList(char *p);
 static void insertToList(char *p);
@@ -363,10 +365,11 @@ static void *find_fit(size_t size)
  * place - Place block of asize bytes at start of free block bp 
  *         and split if remainder would be at least minimum block size
  */
-static void place(void *bp,size_t asize)
+static void place(void *bp, size_t asize)
 {
     size_t csize = GET_SIZE(HDRP(bp));
     deleteFromList(bp);
+
     if ((csize-asize) >= (MIN_BLOCK_SIZE*DSIZE)) {
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
@@ -384,6 +387,14 @@ static void place(void *bp,size_t asize)
     }
 }
 
+static void reallocPlace(void *bp, size_t size)
+{
+   size_t csize = GET_SIZE(HDRP(bp));
+
+   PUT(HDRP(bp), PACK(csize, 1));
+   PUT(FTRP(bp), PACK(csize, 1));
+}
+
 /*
  * mm_realloc
  */
@@ -393,36 +404,41 @@ void *mm_realloc(void *ptr, size_t size)
     void *newptr;
     size_t asize;
 
-    if(size == 0) {
+    // size == 0, just free the block
+    if (size == 0) {
         mm_free(ptr);
         return 0;
     }
 
+    // ptr == NULL, just malloc the size space
     if (ptr == NULL) {
         return mm_malloc(size);
     }
 
     if (size <= DSIZE) {
-        asize = 2*(DSIZE);
+        asize = 2 * (DSIZE);
     } 
     else {
         asize = (DSIZE) * ((size+(DSIZE)+(DSIZE-1)) / (DSIZE));
     }
 
-    if(oldsize == asize) {
+    if (oldsize == asize) {
         return ptr;
     }
-
-    if(oldsize < asize) {
-        int isnextFree;
-        char *bp = realloc_coalesce(ptr, asize, &isnextFree);
-        if ( isnextFree == 1) {
-            realloc_place(bp, asize);
+    else if (oldsize > asize) {
+        reallocPlace(ptr, asize);
+        return ptr;
+    }
+    else{
+        int isNextFree;
+        char *bp = realloc_coalesce(ptr, asize, &isNextFree);
+        if ( isNextFree == 1) {
+            reallocPlace(bp, asize);
             return bp;
         } 
-        else if (isnextFree == 0 && bp != ptr){
+        else if (isNextFree == 0 && bp != ptr){
             memcpy(bp, ptr, size);
-            realloc_place(bp,asize);
+            reallocPlace(bp, asize);
             return bp;
         }
         else {
@@ -432,31 +448,9 @@ void *mm_realloc(void *ptr, size_t size)
             return newptr;
         }
     }
-    else {
-        realloc_place(ptr, asize);
-        return ptr;
-    }
 }
 
-static void realloc_place(void *bp,size_t asize)
-{
-    size_t csize = GET_SIZE(HDRP(bp));
-    if ((csize-asize) >= (2*DSIZE)) {
-        PUT(HDRP(bp),PACK(asize,1));
-        PUT(FTRP(bp),PACK(asize,1));
-        bp = NEXT_BLKP(bp);
 
-        PUT(HDRP(bp),PACK(csize-asize,0));
-        PUT(FTRP(bp),PACK(csize-asize,0));
-        PUT(NEXT_LINKNODE_RP(bp),0);
-        PUT(PREV_LINKNODE_RP(bp),0);
-        coalesce(bp);
-    }
-    else {
-        PUT(HDRP(bp),PACK(csize,1));
-        PUT(FTRP(bp),PACK(csize,1));
-    }
-}
 
 static void *realloc_coalesce(void *bp, size_t newSize, int *isNextFree)
 {
