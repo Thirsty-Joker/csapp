@@ -94,13 +94,14 @@ static void *extend_heap(size_t dwords);
 static void *coalesce(void *bp);
 static void *find_fit(size_t size);
 static void place(void *bp, size_t asize);
-static void reallocPlace(void *bp, size_t asize);
 
 static char *find_list_root(size_t size);
 static void deleteFromList(char *p);
 static void insertToList(char *p);
+
+static void reallocPlace(void *bp);
 static void *realloc_coalesce(void *bp,size_t newSize,int *isNextFree);
-static void realloc_place(void *bp,size_t asize);
+
 
 int mm_check(char *function);
 /*
@@ -387,10 +388,9 @@ static void place(void *bp, size_t asize)
     }
 }
 
-static void reallocPlace(void *bp, size_t size)
+static void reallocPlace(void *bp)
 {
    size_t csize = GET_SIZE(HDRP(bp));
-
    PUT(HDRP(bp), PACK(csize, 1));
    PUT(FTRP(bp), PACK(csize, 1));
 }
@@ -426,19 +426,19 @@ void *mm_realloc(void *ptr, size_t size)
         return ptr;
     }
     else if (oldsize > asize) {
-        reallocPlace(ptr, asize);
+        reallocPlace(ptr);
         return ptr;
     }
-    else{
+    else {
         int isNextFree;
         char *bp = realloc_coalesce(ptr, asize, &isNextFree);
-        if ( isNextFree == 1) {
-            reallocPlace(bp, asize);
+        if (isNextFree == 1) {
+            reallocPlace(bp);
             return bp;
         } 
         else if (isNextFree == 0 && bp != ptr){
             memcpy(bp, ptr, size);
-            reallocPlace(bp, asize);
+            reallocPlace(bp);
             return bp;
         }
         else {
@@ -449,8 +449,6 @@ void *mm_realloc(void *ptr, size_t size)
         }
     }
 }
-
-
 
 static void *realloc_coalesce(void *bp, size_t newSize, int *isNextFree)
 {
@@ -464,9 +462,8 @@ static void *realloc_coalesce(void *bp, size_t newSize, int *isNextFree)
     }
     else if(prev_alloc && !next_alloc)
     {
-        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-        if(size>=newSize)
-        {
+        size += GET_PREV_SIZE(bp);
+        if (size >= newSize) {
             deleteFromList(NEXT_BLKP(bp));
             PUT(HDRP(bp), PACK(size,1));
             PUT(FTRP(bp), PACK(size,1));
@@ -474,28 +471,24 @@ static void *realloc_coalesce(void *bp, size_t newSize, int *isNextFree)
             return bp;
         }
     }
-    else if(!prev_alloc && next_alloc)
-    {
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        if(size>=newSize)
-        {
+    else if(!prev_alloc && next_alloc) {
+        size += GET_NEXT_SIZE(bp);
+        if(size >= newSize) {
             deleteFromList(PREV_BLKP(bp));
-            PUT(FTRP(bp),PACK(size,1));
-            PUT(HDRP(PREV_BLKP(bp)),PACK(size,1));
+            PUT(FTRP(bp), PACK(size,1));
+            PUT(HDRP(PREV_BLKP(bp)), PACK(size,1));
             bp = PREV_BLKP(bp);
             return bp;
         }
 
     }
-    else
-    {
-        size +=GET_SIZE(FTRP(NEXT_BLKP(bp)))+ GET_SIZE(HDRP(PREV_BLKP(bp)));
-        if(size>=newSize)
-        {
+    else {
+        size += GET_NEXT_SIZE(bp)+ GET_PREV_SIZE(bp);
+        if(size >= newSize) {
             deleteFromList(PREV_BLKP(bp));
             deleteFromList(NEXT_BLKP(bp));
-            PUT(FTRP(NEXT_BLKP(bp)),PACK(size,1));
-            PUT(HDRP(PREV_BLKP(bp)),PACK(size,1));
+            PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 1));
+            PUT(HDRP(PREV_BLKP(bp)), PACK(size, 1));
             bp = PREV_BLKP(bp);
         }
 
