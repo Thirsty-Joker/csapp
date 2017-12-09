@@ -20,9 +20,8 @@ static const char *host_key = "Host";
 
 void doit(int connfd);
 void parse_uri(char *uri, char *client_hostname, char *path, int *port);
-void build_proxy_request_hdr(char *endServer_http_header, char *client_hostname, char *path, int port, rio_t *client_rio);
-int connect_endServer(char *hostname, int port);
-
+void build_proxy_request_hdr(char *proxy_request_hdr, char *server_hostname, char *path, int port, rio_t *client_rio)
+int connect_endServer(char *server_hostname, int server_listen_port)
 void *thread(void *vargp);
 
 int main(int argc, char const *argv[])
